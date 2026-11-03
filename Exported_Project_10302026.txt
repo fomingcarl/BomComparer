@@ -1,0 +1,1873 @@
+﻿
+================================================================================
+FILE: App.xaml
+PATH: C:\Users\220096\source\repos\BomComparer\App.xaml
+SIZE: 348 bytes
+================================================================================
+
+<Application x:Class="BomComparer.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:BomComparer"
+             >
+    <Application.Resources>
+         
+    </Application.Resources>
+</Application>
+
+
+================================================================================
+FILE: App.xaml.cs
+PATH: C:\Users\220096\source\repos\BomComparer\App.xaml.cs
+SIZE: 1077 bytes
+================================================================================
+
+// Location: App.xaml.cs
+using System.Windows;
+using Microsoft.Extensions.DependencyInjection;
+using BomComparer.Services;
+using BomComparer.ViewModels;
+
+namespace BomComparer
+{
+    public partial class App : Application
+    {
+        public static ServiceProvider ServiceProvider { get; private set; }
+
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            var serviceCollection = new ServiceCollection();
+
+            // Register Services
+            serviceCollection.AddSingleton<IExcelService, ExcelService>();
+            serviceCollection.AddSingleton<IComparisonService, ComparisonService>();
+
+            // Register ViewModels and Windows
+            serviceCollection.AddTransient<MainViewModel>();
+            serviceCollection.AddTransient<MainWindow>();
+
+            ServiceProvider = serviceCollection.BuildServiceProvider();
+
+            // Set and show the main window
+            var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
+            mainWindow.Show();
+        }
+    }
+}
+
+================================================================================
+FILE: AssemblyInfo.cs
+PATH: C:\Users\220096\source\repos\BomComparer\AssemblyInfo.cs
+SIZE: 644 bytes
+================================================================================
+
+using System.Windows;
+
+[assembly: ThemeInfo(
+    ResourceDictionaryLocation.None,            //where theme specific resource dictionaries are located
+                                                //(used if a resource is not found in the page,
+                                                // or application resource dictionaries)
+    ResourceDictionaryLocation.SourceAssembly   //where the generic resource dictionary is located
+                                                //(used if a resource is not found in the page,
+                                                // app, or any theme specific resource dictionaries)
+)]
+
+
+================================================================================
+FILE: FrequencyMismatchWindow.xaml
+PATH: C:\Users\220096\source\repos\BomComparer\FrequencyMismatchWindow.xaml
+SIZE: 1725 bytes
+================================================================================
+
+<Window x:Class="BomComparer.FrequencyMismatchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Parent Hierarchy Details" Height="450" Width="900" WindowStartupLocation="CenterOwner">
+    <Grid Margin="10">
+        <DataGrid x:Name="UnifiedDataGrid" AutoGenerateColumns="False" IsReadOnly="True" SelectionUnit="CellOrRowHeader" ClipboardCopyMode="IncludeHeader">
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Setter Property="Background" Value="{Binding RowColor}"/>
+                    <Style.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter Property="Background" Value="#E3F2FD" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Source File" Binding="{Binding SourceFile}" FontWeight="Bold"/>
+                <DataGridTextColumn Header="Instance ID" Binding="{Binding InstanceId}"/>
+
+                <!-- NEW COLUMN ADDED HERE -->
+                <DataGridTextColumn Header="Parent Level" Binding="{Binding ParentLevel}"/>
+
+                <DataGridTextColumn Header="Parent Part No" Binding="{Binding ParentPartNo}"/>
+                <DataGridTextColumn Header="Parent Description" Binding="{Binding ParentDescription}"/>
+                <DataGridTextColumn Header="Parent Rev" Binding="{Binding ParentRevision}"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</Window>
+
+================================================================================
+FILE: FrequencyMismatchWindow.xaml.cs
+PATH: C:\Users\220096\source\repos\BomComparer\FrequencyMismatchWindow.xaml.cs
+SIZE: 3856 bytes
+================================================================================
+
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using BomComparer.Models;
+
+namespace BomComparer
+{
+    public partial class FrequencyMismatchWindow : Window
+    {
+        public FrequencyMismatchWindow(string partNo, Dictionary<string, List<BomItem>> loadedBoms)
+        {
+            InitializeComponent();
+
+            // Updated the title to reflect its new universal purpose
+            Title = $"Parent Hierarchy Details - Part: {partNo}";
+
+            var combinedHierarchy = new List<ParentInfo>();
+
+            foreach (var kvp in loadedBoms)
+            {
+                var fileHierarchy = GetParentHierarchy(partNo, kvp.Value, kvp.Key);
+                combinedHierarchy.AddRange(fileHierarchy);
+            }
+
+            int totalFiles = loadedBoms.Count;
+
+            foreach (var item in combinedHierarchy)
+            {
+                int fullMatchCount = combinedHierarchy
+                    .Where(x => x.ParentPartNo == item.ParentPartNo && x.ParentDescription == item.ParentDescription && x.ParentRevision == item.ParentRevision)
+                    .Select(x => x.SourceFile)
+                    .Distinct()
+                    .Count();
+
+                int partialMatchCount = combinedHierarchy
+                    .Where(x => x.ParentPartNo == item.ParentPartNo && x.ParentDescription == item.ParentDescription)
+                    .Select(x => x.SourceFile)
+                    .Distinct()
+                    .Count();
+
+                if (fullMatchCount == totalFiles)
+                    item.RowColor = "#C8E6C9";
+                else if (partialMatchCount == totalFiles)
+                    item.RowColor = "#FFF9C4";
+                else
+                    item.RowColor = "Transparent";
+            }
+
+            UnifiedDataGrid.ItemsSource = combinedHierarchy.OrderBy(h => h.ParentPartNo).ThenBy(h => h.SourceFile).ToList();
+        }
+
+        private List<ParentInfo> GetParentHierarchy(string partNo, List<BomItem> bom, string sourceFile)
+        {
+            var results = new List<ParentInfo>();
+            var occurrences = bom.Where(b => b.PartNo == partNo).ToList();
+
+            foreach (var item in occurrences)
+            {
+                string parentId = GetParentId(item.Id);
+                var parentItem = bom.FirstOrDefault(b => b.Id == parentId);
+
+                // Calculate the parent's level by counting the segments in its ID. If it has no parent, return "-"
+                string parentLevel = string.IsNullOrEmpty(parentId) ? "-" : parentId.Split('.').Length.ToString();
+
+                results.Add(new ParentInfo
+                {
+                    SourceFile = sourceFile,
+                    InstanceId = item.Id,
+                    ParentLevel = parentLevel, // Bind the new calculation
+                    ParentPartNo = parentItem?.PartNo ?? "TOP LEVEL",
+                    ParentDescription = parentItem?.Description ?? "Assembly Root",
+                    ParentRevision = parentItem?.Revision ?? "-"
+                });
+            }
+            return results;
+        }
+
+        private string GetParentId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "";
+            int lastDot = id.LastIndexOf('.');
+            if (lastDot > 0) return id.Substring(0, lastDot);
+            return "";
+        }
+    }
+
+    public class ParentInfo
+    {
+        public string SourceFile { get; set; }
+        public string InstanceId { get; set; }
+        public string ParentLevel { get; set; } // Added property
+        public string ParentPartNo { get; set; }
+        public string ParentDescription { get; set; }
+        public string ParentRevision { get; set; }
+        public string RowColor { get; set; } = "Transparent";
+    }
+}
+
+================================================================================
+FILE: MainWindow.xaml
+PATH: C:\Users\220096\source\repos\BomComparer\MainWindow.xaml
+SIZE: 8121 bytes
+================================================================================
+
+<!-- Location: MainWindow.xaml -->
+<Window x:Class="BomComparer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="BOM Comparer" Height="600" Width="1000">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
+
+    <Grid>
+        <Grid Margin="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="250"/>
+                <!-- Side Panel for File Queue -->
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="*"/>
+                <!-- Main DataGrid -->
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT PANEL: File Queue -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="File Comparison Queue:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+
+                <ListBox Grid.Row="1" ItemsSource="{Binding FileQueue}" SelectedItem="{Binding SelectedQueuedFile}" 
+         SelectionMode="Single" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <!-- Now binds to DisplayName and shows the full original FilePath on hover -->
+                            <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FilePath}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <StackPanel Grid.Row="2" Margin="0,10,0,0">
+                    <Button Content="Add File(s)" Command="{Binding AddFilesCommand}" Margin="0,0,0,5" Height="25"/>
+                    <!-- NEW BUTTON ADDED HERE -->
+                    <Button Content="Set Nickname" Command="{Binding SetNicknameCommand}" Margin="0,0,0,5" Height="25"/>
+                    <Button Content="Remove Selected" Command="{Binding RemoveFileCommand}" Margin="0,0,0,5" Height="25"/>
+                    <Button Content="Clear Queue" Command="{Binding ClearQueueCommand}" Margin="0,0,0,15" Height="25"/>
+
+                    
+                    
+                    <Button Content="Top Level Comparison" Command="{Binding RunTopLevelComparisonCommand}" Margin="0,0,0,5" Height="35" FontWeight="Bold" Background="#E8F5E9"/>
+                    <Button Content="Schematic Check" Command="{Binding OpenReconciliationWindowCommand}" Margin="0,0,0,5" Height="35" FontWeight="Bold" Background="#FFF9C4"/>
+                    <Button Content="Complete Comparison" Command="{Binding RunComparisonCommand}" Height="35" FontWeight="Bold" Background="#D4E6F1"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- RIGHT PANEL: DataGrid and Filters -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Search / Filter Bars -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10" Background="#F0F0F0">
+                    <TextBlock Text="Global Search:" VerticalAlignment="Center" Margin="5,5,5,5" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding SearchAllColumns, UpdateSourceTrigger=PropertyChanged}" Width="120" Margin="0,5,15,5"/>
+
+                    <TextBlock Text="Filter Part No:" VerticalAlignment="Center" Margin="0,5,5,5"/>
+                    <TextBox Text="{Binding SearchPartNo, UpdateSourceTrigger=PropertyChanged}" Width="100" Margin="0,5,15,5"/>
+
+                    <TextBlock Text="Filter Issue Type:" VerticalAlignment="Center" Margin="0,5,5,5"/>
+                    <ComboBox ItemsSource="{Binding AvailableIssueTypes}" SelectedItem="{Binding SearchIssueType, UpdateSourceTrigger=PropertyChanged}" Width="130" Margin="0,5,15,5"/>
+
+                    <Button Content="Export Report" Command="{Binding ExportReportCommand}" Width="100" Margin="20,5,5,5"/>
+                </StackPanel>
+
+                <!-- Data Grid -->
+                <DataGrid Grid.Row="1" ItemsSource="{Binding DifferencesView}" AutoGenerateColumns="False" IsReadOnly="True"
+          SelectionUnit="CellOrRowHeader" ClipboardCopyMode="IncludeHeader" MouseDoubleClick="DataGrid_MouseDoubleClick">
+
+                    
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                    <Setter Property="Background" Value="#E3F2FD" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    
+
+                    <DataGrid.Columns>
+                        
+                        <DataGridTextColumn Header="Part No" Binding="{Binding PartNo}" />
+                        <DataGridTextColumn Header="Description" Binding="{Binding Description}" />
+                        <DataGridTextColumn Header="Cost" Binding="{Binding Cost}" SortMemberPath="Cost" />
+                        <DataGridTextColumn Header="Issue Type" Binding="{Binding IssueType}" />
+                        <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="*">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <!-- Enables the text wrapping to prevent horizontal scrolling -->
+                                    <Setter Property="TextWrapping" Value="Wrap" />
+                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                    <Setter Property="Margin" Value="5,2,5,2" />
+
+                                    <!-- Creates the custom floating ToolTip with a larger font -->
+                                    <Setter Property="ToolTip">
+                                        <Setter.Value>
+                                            <ToolTip>
+                                                <TextBlock Text="{Binding Details}" FontSize="18" FontWeight="SemiBold" MaxWidth="600" TextWrapping="Wrap"/>
+                                            </ToolTip>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Status Dashboard Text -->
+                <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" Margin="0,10,0,0" FontWeight="SemiBold" Foreground="DarkSlateGray"/>
+            </Grid>
+        </Grid>
+
+        <!-- Processing Overlay -->
+        <Grid Background="#80000000" Panel.ZIndex="10" 
+              Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis},FallbackValue=Collapsed}"
+              d:IsHidden="True">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <ProgressBar IsIndeterminate="True" Width="150" Height="20" Margin="0,0,0,10"/>
+                <TextBlock Text="Processing..." Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
+
+================================================================================
+FILE: MainWindow.xaml.cs
+PATH: C:\Users\220096\source\repos\BomComparer\MainWindow.xaml.cs
+SIZE: 1095 bytes
+================================================================================
+
+// Location: MainWindow.xaml.cs
+using System.Windows;
+using BomComparer.ViewModels;
+
+namespace BomComparer
+{
+    public partial class MainWindow : Window
+    {
+        public MainWindow(MainViewModel viewModel)
+        {
+            InitializeComponent();
+            DataContext = viewModel; // Binds the UI to our ViewModel
+        }
+
+
+
+        // Location: MainWindow.xaml.cs
+        private void DataGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (sender is System.Windows.Controls.DataGrid dataGrid && dataGrid.CurrentItem is Models.BomDifference diff)
+            
+                
+                {
+                    var vm = (ViewModels.MainViewModel)DataContext;
+
+                    // Pass the entire loaded dictionary instead of base/new files
+                    var popup = new FrequencyMismatchWindow(diff.PartNo, vm.LoadedBoms);
+                    popup.Owner = this;
+                    popup.ShowDialog();
+                }
+            
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+    }
+}
+
+================================================================================
+FILE: Models\BomDifference.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Models\BomDifference.cs
+SIZE: 414 bytes
+================================================================================
+
+// Location: Models/BomDifference.cs
+namespace BomComparer.Models
+{
+    public class BomDifference
+    {
+        public string PartNo { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public double? Cost { get; set; } 
+        public string IssueType { get; set; } = string.Empty;
+        public string Details { get; set; } = string.Empty;
+    }
+}
+
+================================================================================
+FILE: Models\BomItem.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Models\BomItem.cs
+SIZE: 684 bytes
+================================================================================
+
+// Location: Models/BomItem.cs
+namespace BomComparer.Models
+{
+    public class BomItem
+    {
+        public string Id { get; set; } = string.Empty;
+        public string PartNo { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string Revision { get; set; } = string.Empty;
+
+        // Nullable types (?) allow the data to be genuinely "empty" if missing
+        public double? Quantity { get; set; }
+        public string UoM { get; set; } = string.Empty;
+        public double? Cost { get; set; }
+        public double? ExtendedQty { get; set; }
+
+        public int OccurrenceCount { get; set; }
+    }
+}
+
+================================================================================
+FILE: Models\FileQueueItem.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Models\FileQueueItem.cs
+SIZE: 834 bytes
+================================================================================
+
+// Location: Models/FileQueueItem.cs
+using CommunityToolkit.Mvvm.ComponentModel;
+
+namespace BomComparer.Models
+{
+    // Inherits ObservableObject so the UI updates instantly if a nickname is added
+    public partial class FileQueueItem : ObservableObject
+    {
+        [ObservableProperty]
+        private string _filePath = string.Empty;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(DisplayName))]
+        private string _originalName = string.Empty;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(DisplayName))]
+        private string _nickname = string.Empty;
+
+        // If a nickname exists, use it. Otherwise, fall back to the original filename.
+        public string DisplayName => string.IsNullOrWhiteSpace(Nickname) ? OriginalName : Nickname;
+    }
+}
+
+================================================================================
+FILE: Models\ReconciliationModels.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Models\ReconciliationModels.cs
+SIZE: 1439 bytes
+================================================================================
+
+// Location: Models/ReconciliationModels.cs
+using System.Collections.Generic;
+
+namespace BomComparer.Models
+{
+    public class SchematicItem
+    {
+        public string Subsystem { get; set; } = string.Empty;
+        public string PartNumber { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public double Qty { get; set; }
+    }
+
+    public class ReconciliationItem
+    {
+        public string Subsystem { get; set; } = string.Empty;
+        public string PartNumber { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public double SchematicQty { get; set; }
+        public double AllocatedQty { get; set; }
+        public double RemainingQty { get; set; }
+        public string Status { get; set; } = string.Empty;
+    }
+
+    public class NewKitAdd
+    {
+        public string PartNumber { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public double AdditionalQty { get; set; }
+        public double? UnitCost { get; set; }
+        public double? ExtendedCost { get; set; }
+        public string Subsystems { get; set; } = string.Empty;
+    }
+
+    public class ReconciliationReportData
+    {
+        public List<ReconciliationItem> MainReport { get; set; } = new();
+        public List<NewKitAdd> NewKitAdds { get; set; } = new();
+    }
+}
+
+================================================================================
+FILE: ReconciliationWindow.xaml
+PATH: C:\Users\220096\source\repos\BomComparer\ReconciliationWindow.xaml
+SIZE: 1921 bytes
+================================================================================
+
+<Window x:Class="BomComparer.ReconciliationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Subsystem Cable Reconciliation" Height="250" Width="600" WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,15">
+            <TextBlock Text="1. Select Schematic Excel File:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <DockPanel>
+                <Button Content="Browse..." Width="80" DockPanel.Dock="Right" Click="BrowseSchematic_Click" Margin="5,0,0,0"/>
+                <TextBox x:Name="SchematicPathBox" IsReadOnly="True" Background="#F5F5F5" VerticalContentAlignment="Center" Height="25"/>
+            </DockPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,15">
+            <TextBlock Text="2. Select Exploded BOM Excel File:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <DockPanel>
+                <Button Content="Browse..." Width="80" DockPanel.Dock="Right" Click="BrowseExploded_Click" Margin="5,0,0,0"/>
+                <TextBox x:Name="ExplodedPathBox" IsReadOnly="True" Background="#F5F5F5" VerticalContentAlignment="Center" Height="25"/>
+            </DockPanel>
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText" Grid.Row="2" Text="" Foreground="Blue" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+
+        <Button x:Name="GenerateButton" Grid.Row="3" Content="Generate Reconciliation Report" Height="35" FontWeight="Bold" Background="#D4E6F1" Click="Generate_Click"/>
+    </Grid>
+</Window>
+
+================================================================================
+FILE: ReconciliationWindow.xaml.cs
+PATH: C:\Users\220096\source\repos\BomComparer\ReconciliationWindow.xaml.cs
+SIZE: 3054 bytes
+================================================================================
+
+using System;
+using System.Threading.Tasks;
+using System.Windows;
+using Microsoft.Win32;
+using BomComparer.Services;
+
+namespace BomComparer
+{
+    public partial class ReconciliationWindow : Window
+    {
+        private readonly IExcelService _excelService;
+        private readonly IComparisonService _comparisonService;
+
+        public ReconciliationWindow(IExcelService excelService, IComparisonService comparisonService)
+        {
+            InitializeComponent();
+            _excelService = excelService;
+            _comparisonService = comparisonService;
+        }
+
+        private void BrowseSchematic_Click(object sender, RoutedEventArgs e)
+        {
+            var fd = new OpenFileDialog { Filter = "Excel Files|*.xlsx" };
+            if (fd.ShowDialog() == true) SchematicPathBox.Text = fd.FileName;
+        }
+
+        private void BrowseExploded_Click(object sender, RoutedEventArgs e)
+        {
+            var fd = new OpenFileDialog { Filter = "Excel Files|*.xlsx" };
+            if (fd.ShowDialog() == true) ExplodedPathBox.Text = fd.FileName;
+        }
+
+        private async void Generate_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(SchematicPathBox.Text) || string.IsNullOrWhiteSpace(ExplodedPathBox.Text))
+            {
+                MessageBox.Show("Please select both files before generating.", "Missing Files", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var saveFd = new SaveFileDialog { Filter = "Excel Files|*.xlsx", DefaultExt = "xlsx", FileName = "Subsystem Cable BOM Reconciliation" };
+            if (saveFd.ShowDialog() != true) return;
+
+            GenerateButton.IsEnabled = false;
+            StatusText.Text = "Processing... Please wait.";
+
+            try
+            {
+                await Task.Run(() =>
+                {
+                    // 1. Read the raw data
+                    var schematic = _excelService.ReadSchematic(SchematicPathBox.Text);
+                    var explodedResult = _excelService.ReadBom(ExplodedPathBox.Text);
+
+                    // 2. Execute Math and Categorization
+                    var reportData = _comparisonService.ReconcileBoms(schematic, explodedResult.BomItems);
+
+                    // 3. Export to Excel
+                    _excelService.ExportReconciliationReport(saveFd.FileName, reportData);
+                });
+
+                MessageBox.Show("Reconciliation Report generated successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                this.Close(); // Closes the dialog automatically on success
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Error Generating Report", MessageBoxButton.OK, MessageBoxImage.Error);
+                StatusText.Text = "Failed.";
+            }
+            finally
+            {
+                GenerateButton.IsEnabled = true;
+            }
+        }
+    }
+}
+
+================================================================================
+FILE: RenameWindow.xaml
+PATH: C:\Users\220096\source\repos\BomComparer\RenameWindow.xaml
+SIZE: 805 bytes
+================================================================================
+
+<Window x:Class="BomComparer.RenameWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Set Nickname" Height="150" Width="350" WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <StackPanel Margin="15">
+        <TextBlock Text="Enter a nickname for this file:" Margin="0,0,0,5"/>
+        <TextBox x:Name="NameTextBox" Height="25" VerticalContentAlignment="Center"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Content="OK" Click="OkButton_Click" Width="75" Margin="0,0,10,0"/>
+            <Button Content="Cancel" Click="CancelButton_Click" Width="75"/>
+        </StackPanel>
+    </StackPanel>
+</Window>
+
+================================================================================
+FILE: RenameWindow.xaml.cs
+PATH: C:\Users\220096\source\repos\BomComparer\RenameWindow.xaml.cs
+SIZE: 707 bytes
+================================================================================
+
+using System.Windows;
+
+namespace BomComparer
+{
+    public partial class RenameWindow : Window
+    {
+        public string NewName { get; private set; }
+
+        public RenameWindow(string currentName)
+        {
+            InitializeComponent();
+            NameTextBox.Text = currentName;
+            NameTextBox.SelectAll();
+            NameTextBox.Focus();
+        }
+
+        private void OkButton_Click(object sender, RoutedEventArgs e)
+        {
+            NewName = NameTextBox.Text.Trim();
+            DialogResult = true;
+        }
+
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            DialogResult = false;
+        }
+    }
+}
+
+================================================================================
+FILE: Services\ComparisonService.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Services\ComparisonService.cs
+SIZE: 14095 bytes
+================================================================================
+
+// Location: Services/ComparisonService.cs
+using System.Collections.Generic;
+using System.Linq;
+using BomComparer.Models;
+
+namespace BomComparer.Services
+{
+    public class ComparisonService : IComparisonService
+    {
+        public List<BomDifference> CompareBoms(Dictionary<string, List<BomItem>> loadedBoms)
+        {
+            var differences = new List<BomDifference>();
+
+            // Requires at least 2 files to perform a comparison
+            if (loadedBoms.Count < 2) return differences;
+
+            var fileNames = loadedBoms.Keys.ToList();
+
+            // 1. Gather every unique Part Number across all queued files
+            var allPartNumbers = loadedBoms.Values.SelectMany(b => b.Select(i => i.PartNo)).Distinct().ToList();
+
+            foreach (var partNo in allPartNumbers)
+            {
+                // Extract the specific BOM Items for this part from every file
+                var itemsPerFile = new Dictionary<string, List<BomItem>>();
+                foreach (var file in fileNames)
+                {
+                    itemsPerFile[file] = loadedBoms[file].Where(i => i.PartNo == partNo).ToList();
+                }
+
+                // Count how many files actually contain this part
+                int filesContainingPart = itemsPerFile.Count(kvp => kvp.Value.Any());
+
+                // Grab description and cost from the first file that has the part to populate the DataGrid
+                var firstPresentItem = itemsPerFile.First(kvp => kvp.Value.Any()).Value.First();
+                string desc = firstPresentItem.Description;
+                double? cost = firstPresentItem.Cost;
+
+                // PRESENCE MISMATCH: Replaces "Added/Removed" for N-Way comparisons
+                if (filesContainingPart < fileNames.Count)
+                {
+                    var presentIn = itemsPerFile.Where(kvp => kvp.Value.Any()).Select(k => k.Key);
+                    var missingFrom = itemsPerFile.Where(kvp => !kvp.Value.Any()).Select(k => k.Key);
+
+                    differences.Add(new BomDifference
+                    {
+                        PartNo = partNo,
+                        Description = desc,
+                        Cost = cost,
+                        IssueType = "Presence Mismatch",
+                        Details = $"Present: [{string.Join(", ", presentIn)}]  |  Missing: [{string.Join(", ", missingFrom)}]"
+                    });
+
+                    // If a part is missing from a file entirely, comparing its quantities/costs will throw false positives. 
+                    continue;
+                }
+
+                // QTY MISMATCH: Checks if any file's total Extended Qty differs from the others
+                if (itemsPerFile.Values.Any(list => list.Any(i => i.ExtendedQty.HasValue)))
+                {
+                    var qtys = itemsPerFile.ToDictionary(k => k.Key, v => v.Value.Sum(i => i.ExtendedQty ?? 0));
+
+                    // .Distinct() checks if there is more than 1 unique value across all files
+                    if (qtys.Values.Distinct().Count() > 1)
+                    {
+                        string details = string.Join("  |  ", qtys.Select(q => $"[{q.Key}]: {q.Value}"));
+                        differences.Add(new BomDifference { PartNo = partNo, Description = desc, Cost = cost, IssueType = "Qty Mismatch", Details = details });
+                    }
+                }
+
+                // REV CHANGE
+                var revs = itemsPerFile.ToDictionary(k => k.Key, v => v.Value.First().Revision);
+                if (revs.Values.Distinct().Count() > 1)
+                {
+                    string details = string.Join("  |  ", revs.Select(r => $"[{r.Key}]: {(string.IsNullOrEmpty(r.Value) ? "-" : r.Value)}"));
+                    differences.Add(new BomDifference { PartNo = partNo, Description = desc, Cost = cost, IssueType = "Rev Change", Details = details });
+                }
+
+                // UOM MISMATCH
+                var uoms = itemsPerFile.ToDictionary(k => k.Key, v => v.Value.First().UoM);
+                if (uoms.Values.Distinct().Count() > 1)
+                {
+                    string details = string.Join("  |  ", uoms.Select(u => $"[{u.Key}]: {(string.IsNullOrEmpty(u.Value) ? "-" : u.Value)}"));
+                    differences.Add(new BomDifference { PartNo = partNo, Description = desc, Cost = cost, IssueType = "UoM Mismatch", Details = details });
+                }
+
+                // COST CHANGE
+                if (itemsPerFile.Values.All(list => list.First().Cost.HasValue))
+                {
+                    var costs = itemsPerFile.ToDictionary(k => k.Key, v => v.Value.First().Cost);
+                    if (costs.Values.Distinct().Count() > 1)
+                    {
+                        string details = string.Join("  |  ", costs.Select(c => $"[{c.Key}]: {c.Value}"));
+                        differences.Add(new BomDifference { PartNo = partNo, Description = desc, Cost = cost, IssueType = "Cost Change", Details = details });
+                    }
+                }
+
+                // FREQUENCY MISMATCH
+                var freqs = itemsPerFile.ToDictionary(k => k.Key, v => v.Value.Count);
+                if (freqs.Values.Distinct().Count() > 1)
+                {
+                    string details = string.Join("  |  ", freqs.Select(f => $"[{f.Key}]: {f.Value}x"));
+                    differences.Add(new BomDifference { PartNo = partNo, Description = desc, Cost = cost, IssueType = "Frequency Mismatch", Details = details });
+                }
+            }
+            return differences;
+        }
+
+
+        public System.Data.DataTable GenerateTopLevelReport(Dictionary<string, List<BomItem>> loadedBoms)
+        {
+            var dt = new System.Data.DataTable();
+            if (loadedBoms.Count == 0) return dt;
+
+            var fileNames = loadedBoms.Keys.ToList();
+
+            // 1. Setup Static Columns
+            dt.Columns.Add("Category", typeof(string));
+            dt.Columns.Add("Location", typeof(string));
+            dt.Columns.Add("Location by SN", typeof(string));
+            dt.Columns.Add("Part Number", typeof(string));
+            dt.Columns.Add("Description", typeof(string));
+            dt.Columns.Add("UOM", typeof(string));
+            dt.Columns.Add("Present In", typeof(string));
+            dt.Columns.Add("Missing From", typeof(string));
+
+            // 2. Setup Dynamic Columns
+            foreach (var file in fileNames)
+            {
+                dt.Columns.Add($"{file} Qty", typeof(double));
+            }
+            //dt.Columns.Add("Notes", typeof(string));
+
+
+
+
+            // 3. Filter all BOMs to gather unique Level 2 items (ID contains exactly 1 dot)
+            var level2Parts = loadedBoms.Values
+                .SelectMany(b => b.Where(i => i.Id.Count(c => c == '.') == 1))
+                .Select(i => i.PartNo)
+                .Distinct()
+                .ToList();
+
+            foreach (var partNo in level2Parts)
+            {
+                var row = dt.NewRow();
+                var presentIn = new List<string>();
+                var missingFrom = new List<string>();
+                var locationsByFile = new Dictionary<string, string>();
+                var quantities = new List<double>();
+
+                string desc = "", uom = "";
+
+                foreach (var file in fileNames)
+                {
+                    var bom = loadedBoms[file];
+                    // Find the specific Level 2 item in this file
+                    var item = bom.FirstOrDefault(i => i.PartNo == partNo && i.Id.Count(c => c == '.') == 1);
+
+                    if (item != null)
+                    {
+                        presentIn.Add(file);
+                        desc = item.Description;
+                        uom = item.UoM;
+                        row[$"{file} Qty"] = item.ExtendedQty ?? 0;
+                        quantities.Add(item.ExtendedQty ?? 0);
+
+                        // Find Parent Location
+                        string parentId = item.Id.Split('.')[0];
+                        var parent = bom.FirstOrDefault(b => b.Id == parentId);
+                        string pDesc = parent?.Description?.ToUpper() ?? "";
+
+                        if (pDesc.Contains("ASSY, CM CONFIG")) locationsByFile[file] = "CM";
+                        else if (pDesc.Contains("ASSY, NEXX CONFIG")) locationsByFile[file] = "NEXX";
+                        else if (pDesc.Contains("KIT, FIELD UPGRADE")) locationsByFile[file] = "FUPG";
+                        else locationsByFile[file] = "UNASSIGNED";
+                    }
+                    else
+                    {
+                        missingFrom.Add(file);
+                        row[$"{file} Qty"] = System.DBNull.Value;
+                    }
+                }
+
+                row["Part Number"] = partNo;
+                row["Description"] = desc;
+                row["UOM"] = uom;
+                row["Present In"] = string.Join(", ", presentIn);
+                row["Missing From"] = string.Join(", ", missingFrom);
+
+                // Location Logic
+                var uniqueLocations = locationsByFile.Values.Distinct().ToList();
+                if (uniqueLocations.Count == 1)
+                {
+                    row["Location"] = uniqueLocations.First();
+                }
+                else
+                {
+                    row["Location"] = "VARIES";
+                    row["Location by SN"] = string.Join("; ", locationsByFile.Select(kvp => $"{kvp.Key}: {kvp.Value}"));
+                }
+
+                // Category Logic
+                bool qtyConsistent = quantities.Distinct().Count() == 1;
+
+                if (presentIn.Count == fileNames.Count)
+                    row["Category"] = qtyConsistent ? "Common to All - Qty Consistent" : "Common to All - Qty Differs";
+                else if (presentIn.Count > 1)
+                    row["Category"] = qtyConsistent ? "Shared by Some - Qty Consistent" : "Shared by Some - Qty Differs";
+                else
+                    row["Category"] = $"Unique to {presentIn.First()}";
+
+                dt.Rows.Add(row);
+            }
+
+            return dt;
+        }
+
+
+
+        public ReconciliationReportData ReconcileBoms(List<SchematicItem> schematic, List<BomItem> explodedBom)
+        {
+            var data = new ReconciliationReportData();
+
+            // 1. Aggregate Exploded BOM to get the total sum and capture the first valid Cost and Description
+            var explodedAgg = explodedBom
+                .Where(b => !string.IsNullOrWhiteSpace(b.PartNo))
+                .GroupBy(b => b.PartNo)
+                .ToDictionary(
+                    g => g.Key,
+                    g => new
+                    {
+                        TotalQty = g.Sum(x => x.ExtendedQty ?? 0),
+                        Cost = g.FirstOrDefault(x => x.Cost.HasValue)?.Cost,
+                        Description = g.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.Description))?.Description
+                    }
+                );
+
+            // 2. Build Main Reconciliation Sheet
+            var missingItems = new List<ReconciliationItem>();
+
+            foreach (var sch in schematic)
+            {
+                bool found = explodedAgg.TryGetValue(sch.PartNumber, out var agg);
+                double alloc = found ? agg.TotalQty : 0;
+                double remaining = sch.Qty - alloc;
+
+                string status = "";
+                if (string.IsNullOrWhiteSpace(sch.PartNumber)) status = "Manual Review";
+                else if (alloc == 0) status = "Cable BOM Only";
+                else if (alloc < sch.Qty) status = "Partially Accounted For";
+                else status = "Fully Accounted For";
+
+                // Contingency: If the Schematic Description is empty, try to steal it from the Exploded BOM
+                string finalDesc = sch.Description;
+                if (string.IsNullOrWhiteSpace(finalDesc) && found)
+                    finalDesc = agg.Description ?? "";
+
+                var rItem = new ReconciliationItem
+                {
+                    Subsystem = sch.Subsystem,
+                    PartNumber = sch.PartNumber,
+                    Description = finalDesc,
+                    SchematicQty = sch.Qty,
+                    AllocatedQty = alloc,
+                    RemainingQty = remaining,
+                    Status = status
+                };
+                data.MainReport.Add(rItem);
+
+                // Filter shortages for the New Kit Adds list
+                if (remaining > 0 && !string.IsNullOrWhiteSpace(sch.PartNumber))
+                {
+                    missingItems.Add(rItem);
+                }
+            }
+
+            // 3. Build New Kit Adds Sheet (Grouped by Part)
+            var groupedMissing = missingItems.GroupBy(m => m.PartNumber);
+            foreach (var g in groupedMissing)
+            {
+                double totalAdditional = g.Sum(x => x.RemainingQty);
+                var part = g.Key;
+
+                bool found = explodedAgg.TryGetValue(part, out var agg);
+
+                // Cost evaluates to null if missing from exploded BOM format, preventing crashes
+                double? unitCost = found ? agg.Cost : null;
+                double? extCost = unitCost.HasValue ? unitCost.Value * totalAdditional : null;
+
+                string subsystems = string.Join(" | ", g.Select(x => x.Subsystem).Distinct());
+
+                data.NewKitAdds.Add(new NewKitAdd
+                {
+                    PartNumber = part,
+                    Description = g.First().Description,
+                    AdditionalQty = totalAdditional,
+                    UnitCost = unitCost,
+                    ExtendedCost = extCost,
+                    Subsystems = subsystems
+                });
+            }
+
+            return data;
+        }
+
+
+
+
+
+
+    }
+}
+
+================================================================================
+FILE: Services\ExcelService.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Services\ExcelService.cs
+SIZE: 13936 bytes
+================================================================================
+
+// Location: Services/ExcelService.cs
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using ClosedXML.Excel;
+using BomComparer.Models;
+
+namespace BomComparer.Services
+{
+    public class ExcelService : IExcelService
+    {
+        public BomImportResult ReadBom(string filePath)
+        {
+            var result = new BomImportResult();
+
+            try
+            {
+                using (var workbook = new XLWorkbook(filePath))
+                {
+                    var worksheet = workbook.Worksheet(1);
+                    var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    var headerRow = worksheet.Row(1);
+
+                    // 1. Map columns dynamically from the first row
+                    foreach (var cell in headerRow.CellsUsed())
+                    {
+                        string headerName = cell.GetString().Trim();
+                        if (!string.IsNullOrWhiteSpace(headerName))
+                            headerMap[headerName] = cell.Address.ColumnNumber;
+                    }
+
+                    // --- ALIAS HELPER METHODS ---
+                    // Checks multiple possible header names (aliases) and returns the first matching column index
+                    int GetColumnIndex(params string[] possibleNames)
+                    {
+                        foreach (var name in possibleNames)
+                        {
+                            if (headerMap.TryGetValue(name, out int colIndex)) return colIndex;
+                        }
+                        return -1; // Not found
+                    }
+
+                    string GetStringSafe(IXLRow r, params string[] colNames)
+                    {
+                        int colIndex = GetColumnIndex(colNames);
+                        return colIndex != -1 ? r.Cell(colIndex).GetString().Trim() : string.Empty;
+                    }
+
+                    double? GetDoubleSafe(IXLRow r, params string[] colNames)
+                    {
+                        int colIndex = GetColumnIndex(colNames);
+                        if (colIndex != -1 && r.Cell(colIndex).TryGetValue<double>(out var val)) return val;
+                        return null;
+                    }
+
+                    int? GetIntSafe(IXLRow r, params string[] colNames)
+                    {
+                        int colIndex = GetColumnIndex(colNames);
+                        if (colIndex != -1 && r.Cell(colIndex).TryGetValue<int>(out var val)) return val;
+                        return null;
+                    }
+
+                    // 2. Detect missing columns using the primary name and its aliases
+                    void CheckRequired(string displayWarningName, params string[] aliases)
+                    {
+                        if (GetColumnIndex(aliases) == -1)
+                            result.MissingColumns.Add(displayWarningName);
+                    }
+
+                    // Checks for either the Engineering Toolbox format or BOM Reader format
+                    CheckRequired("ID or Level", "ID", "Level", "level");
+                    CheckRequired("Part No", "Part No", "NPart");
+                    CheckRequired("Rev", "Rev");
+                    CheckRequired("Qty", "Qty", "BOM_Qty");
+                    CheckRequired("UoM", "UoM", "Meas");
+                    CheckRequired("Description", "Description", "Desc");
+                    CheckRequired("Cost", "Cost"); // BOM Reader lacks this, so it will correctly warn and skip
+                    CheckRequired("Extended Qty", "Extended Qty", "Total_Qty");
+
+                    // 3. Read data and generate missing IDs
+                    var rows = worksheet.RowsUsed().Skip(1);
+                    var levelCounters = new Dictionary<int, int>(); // Tracks the numbering for the dynamic ID generator
+
+                    foreach (var row in rows)
+                    {
+                        var item = new BomItem
+                        {
+                            PartNo = GetStringSafe(row, "Part No", "NPart"),
+                            Revision = GetStringSafe(row, "Rev"),
+                            Quantity = GetDoubleSafe(row, "Qty", "BOM_Qty"),
+                            UoM = GetStringSafe(row, "UoM", "Meas"),
+                            Description = GetStringSafe(row, "Description", "Desc"),
+                            Cost = GetDoubleSafe(row, "Cost"),
+                            ExtendedQty = GetDoubleSafe(row, "Extended Qty", "Total_Qty")
+                        };
+
+                        // ID GENERATION CONTINGENCY
+                        string rawId = GetStringSafe(row, "ID");
+                        if (!string.IsNullOrWhiteSpace(rawId))
+                        {
+                            item.Id = rawId; // Engineering Toolbox format: Use the provided ID
+                        }
+                        else
+                        {
+                            // BOM Reader format: Generate the ID using the Level column
+                            int currentLevel = GetIntSafe(row, "Level", "level") ?? 1;
+
+                            // Increment the counter for the current level
+                            if (levelCounters.ContainsKey(currentLevel))
+                                levelCounters[currentLevel]++;
+                            else
+                                levelCounters[currentLevel] = 1;
+
+                            // Reset counters for any deeper levels so they start back at 1
+                            var keysToRemove = levelCounters.Keys.Where(k => k > currentLevel).ToList();
+                            foreach (var k in keysToRemove) levelCounters.Remove(k);
+
+                            // Construct the ID string (e.g., 001.002.001)
+                            var idParts = new List<string>();
+                            for (int i = 1; i <= currentLevel; i++)
+                            {
+                                if (levelCounters.TryGetValue(i, out int count))
+                                    idParts.Add(count.ToString("D3")); // Pads with zeroes
+                                else
+                                    idParts.Add("001");
+                            }
+                            item.Id = string.Join(".", idParts);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(item.PartNo))
+                            result.BomItems.Add(item);
+                    }
+                }
+            }
+            catch (IOException ex)
+            {
+                throw new Exception($"The file '{Path.GetFileName(filePath)}' is currently open in another program (like Excel). Please close it and try again.", ex);
+            }
+
+            return result;
+        }
+
+        public void ExportComparison(string savePath, List<BomDifference> differences)
+        {
+            using (var workbook = new XLWorkbook())
+            {
+                var ws = workbook.Worksheets.Add("Comparison Report");
+
+                // Set headers
+                ws.Cell(1, 1).Value = "Part No";
+                ws.Cell(1, 2).Value = "Description";
+                ws.Cell(1, 3).Value = "Cost";
+                ws.Cell(1, 4).Value = "Issue Type";
+                ws.Cell(1, 5).Value = "Details";
+
+                for (int i = 0; i < differences.Count; i++)
+                {
+                    ws.Cell(i + 2, 1).Value = differences[i].PartNo;
+                    ws.Cell(i + 2, 2).Value = differences[i].Description;
+                    ws.Cell(i + 2, 3).Value = differences[i].Cost;
+                    ws.Cell(i + 2, 4).Value = differences[i].IssueType;
+                    ws.Cell(i + 2, 5).Value = differences[i].Details;
+                }
+
+                ws.Columns().AdjustToContents();
+                workbook.SaveAs(savePath);
+            }
+        }
+
+
+        public void ExportDataTable(string savePath, System.Data.DataTable dataTable, string sheetName)
+        {
+            using (var workbook = new XLWorkbook())
+            {
+                var ws = workbook.Worksheets.Add(sheetName);
+                ws.Cell(1, 1).InsertTable(dataTable);
+                ws.Columns().AdjustToContents();
+                workbook.SaveAs(savePath);
+            }
+        }
+
+
+        public List<SchematicItem> ReadSchematic(string filePath)
+        {
+            var list = new List<SchematicItem>();
+            using (var workbook = new XLWorkbook(filePath))
+            {
+                var ws = workbook.Worksheet(1);
+                int headerRowIdx = -1;
+
+                // Dynamically find where the actual data starts by scanning for "Subsystem"
+                for (int i = 1; i <= 20; i++)
+                {
+                    if (ws.Cell(i, 1).GetString().Trim().Equals("Subsystem", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        headerRowIdx = i;
+                        break;
+                    }
+                }
+
+                if (headerRowIdx == -1) throw new System.Exception("Could not find 'Subsystem' header in schematic file.");
+
+                var headerMap = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+                foreach (var cell in ws.Row(headerRowIdx).CellsUsed())
+                {
+                    string headerName = cell.GetString().Trim();
+                    if (!string.IsNullOrWhiteSpace(headerName))
+                        headerMap[headerName] = cell.Address.ColumnNumber;
+                }
+
+                int GetCol(params string[] aliases)
+                {
+                    foreach (var name in aliases)
+                        if (headerMap.TryGetValue(name, out int colIndex)) return colIndex;
+                    return -1;
+                }
+
+                int subCol = GetCol("Subsystem");
+                int partCol = GetCol("Cable/Device K#", "Part Number");
+                int descCol = GetCol("Description", "Desc");
+                int qtyCol = GetCol("QTY", "Quantity");
+
+                var rows = ws.RowsUsed().Skip(headerRowIdx);
+                foreach (var row in rows)
+                {
+                    string part = partCol != -1 ? row.Cell(partCol).GetString().Trim() : "";
+                    string sub = subCol != -1 ? row.Cell(subCol).GetString().Trim() : "";
+
+                    // Skip completely empty rows
+                    if (string.IsNullOrWhiteSpace(part) && string.IsNullOrWhiteSpace(sub)) continue;
+
+                    list.Add(new SchematicItem
+                    {
+                        Subsystem = sub,
+                        PartNumber = part,
+                        Description = descCol != -1 ? row.Cell(descCol).GetString().Trim() : "",
+                        Qty = qtyCol != -1 && row.Cell(qtyCol).TryGetValue<double>(out var q) ? q : 0
+                    });
+                }
+            }
+            return list;
+        }
+
+        public void ExportReconciliationReport(string savePath, ReconciliationReportData reportData)
+        {
+            using (var workbook = new XLWorkbook())
+            {
+                // SHEET 1: Main Reconciliation
+                var ws1 = workbook.Worksheets.Add("Subsystem Cable Reconciliation");
+                ws1.Cell(1, 1).Value = "Subsystem";
+                ws1.Cell(1, 2).Value = "Part Number";
+                ws1.Cell(1, 3).Value = "Description";
+                ws1.Cell(1, 4).Value = "Schematic Qty";
+                ws1.Cell(1, 5).Value = "Tool BOM Qty Allocated";
+                ws1.Cell(1, 6).Value = "Remaining Qty";
+                ws1.Cell(1, 7).Value = "Status";
+
+                for (int i = 0; i < reportData.MainReport.Count; i++)
+                {
+                    var item = reportData.MainReport[i];
+                    int r = i + 2;
+                    ws1.Cell(r, 1).Value = item.Subsystem;
+                    ws1.Cell(r, 2).Value = item.PartNumber;
+                    ws1.Cell(r, 3).Value = item.Description;
+                    ws1.Cell(r, 4).Value = item.SchematicQty;
+                    ws1.Cell(r, 5).Value = item.AllocatedQty;
+                    ws1.Cell(r, 6).Value = item.RemainingQty;
+                    ws1.Cell(r, 7).Value = item.Status;
+                }
+                ws1.Columns().AdjustToContents();
+
+                // SHEET 2: New Kit Adds
+                var ws2 = workbook.Worksheets.Add("New Kit Adds");
+                ws2.Cell(1, 1).Value = "Part Number";
+                ws2.Cell(1, 2).Value = "Description";
+                ws2.Cell(1, 3).Value = "Total Additional Qty Required";
+                ws2.Cell(1, 4).Value = "Unit Standard Cost";
+                ws2.Cell(1, 5).Value = "Extended Standard Cost";
+                ws2.Cell(1, 6).Value = "Subsystems Requiring Additional Qty";
+
+                for (int i = 0; i < reportData.NewKitAdds.Count; i++)
+                {
+                    var item = reportData.NewKitAdds[i];
+                    int r = i + 2;
+                    ws2.Cell(r, 1).Value = item.PartNumber;
+                    ws2.Cell(r, 2).Value = item.Description;
+                    ws2.Cell(r, 3).Value = item.AdditionalQty;
+
+                    // Safely write the nullables. If cost is missing, these cells remain blank.
+                    if (item.UnitCost.HasValue) ws2.Cell(r, 4).Value = item.UnitCost.Value;
+                    if (item.ExtendedCost.HasValue) ws2.Cell(r, 5).Value = item.ExtendedCost.Value;
+
+                    ws2.Cell(r, 6).Value = item.Subsystems;
+                }
+                ws2.Columns().AdjustToContents();
+
+                workbook.SaveAs(savePath);
+            }
+        }
+
+
+
+
+
+
+    }
+}
+
+================================================================================
+FILE: Services\IComparisonService.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Services\IComparisonService.cs
+SIZE: 607 bytes
+================================================================================
+
+// Location: Services/IComparisonService.cs
+using System.Collections.Generic;
+using BomComparer.Models;
+
+namespace BomComparer.Services
+{
+    public interface IComparisonService
+    {
+        List<BomDifference> CompareBoms(Dictionary<string, List<BomItem>> loadedBoms);
+
+        // Moved here so the ViewModel can successfully call it via _comparisonService
+        System.Data.DataTable GenerateTopLevelReport(Dictionary<string, List<BomItem>> loadedBoms);
+
+        ReconciliationReportData ReconcileBoms(List<SchematicItem> schematic, List<BomItem> explodedBom);
+
+
+    }
+
+
+
+
+
+
+}
+
+================================================================================
+FILE: Services\IExcelService.cs
+PATH: C:\Users\220096\source\repos\BomComparer\Services\IExcelService.cs
+SIZE: 869 bytes
+================================================================================
+
+// Location: Services/IExcelService.cs
+using System.Collections.Generic;
+using BomComparer.Models;
+
+namespace BomComparer.Services
+{
+    public class BomImportResult
+    {
+        public List<BomItem> BomItems { get; set; } = new();
+        public List<string> MissingColumns { get; set; } = new();
+    }
+
+    public interface IExcelService
+    {
+        BomImportResult ReadBom(string filePath);
+        void ExportComparison(string savePath, List<BomDifference> differences);
+
+        // ExportDataTable stays here because it handles Excel file generation
+        void ExportDataTable(string savePath, System.Data.DataTable dataTable, string sheetName);
+
+        List<SchematicItem> ReadSchematic(string filePath);
+        void ExportReconciliationReport(string savePath, ReconciliationReportData reportData);
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+}
+
+================================================================================
+FILE: TopLevelReportWindow.xaml
+PATH: C:\Users\220096\source\repos\BomComparer\TopLevelReportWindow.xaml
+SIZE: 1981 bytes
+================================================================================
+
+<Window x:Class="BomComparer.TopLevelReportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Top Level Comparison" Height="600" Width="1200" WindowStartupLocation="CenterScreen">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Search / Filter Bars -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" Background="#F0F0F0">
+
+            <TextBlock Text="Filter Category:" VerticalAlignment="Center" Margin="0,5,5,5" FontWeight="SemiBold"/>
+            <TextBox x:Name="CategoryFilter" Width="200" Margin="0,5,15,5" TextChanged="Filter_TextChanged"/>
+
+            <TextBlock Text="Filter Part No:" VerticalAlignment="Center" Margin="5,5,5,5" FontWeight="SemiBold"/>
+            <TextBox x:Name="PartNoFilter" Width="120" Margin="0,5,15,5" TextChanged="Filter_TextChanged"/>
+
+            
+
+            <Button Content="Export Report" Click="ExportButton_Click" Width="120" Height="25" FontWeight="SemiBold" Margin="20,5,5,5"/>
+        </StackPanel>
+
+        <!-- DataGrid with Row Highlighting -->
+        <DataGrid x:Name="ReportGrid" Grid.Row="1" AutoGenerateColumns="True" IsReadOnly="True" 
+                  SelectionUnit="CellOrRowHeader" ClipboardCopyMode="IncludeHeader">
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Style.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter Property="Background" Value="#E3F2FD" />
+                            <!-- Light Blue Highlight -->
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+        </DataGrid>
+    </Grid>
+</Window>
+
+================================================================================
+FILE: TopLevelReportWindow.xaml.cs
+PATH: C:\Users\220096\source\repos\BomComparer\TopLevelReportWindow.xaml.cs
+SIZE: 2527 bytes
+================================================================================
+
+using System.Data;
+using System.Windows;
+using Microsoft.Win32;
+using BomComparer.Services;
+using System.Collections.Generic;
+
+namespace BomComparer
+{
+    public partial class TopLevelReportWindow : Window
+    {
+        private readonly DataTable _reportData;
+        private readonly IExcelService _excelService;
+
+        public TopLevelReportWindow(DataTable reportData, IExcelService excelService)
+        {
+            InitializeComponent();
+            _reportData = reportData;
+            _excelService = excelService;
+
+            ReportGrid.ItemsSource = _reportData.DefaultView;
+        }
+
+        // NEW: Live filtering logic for the DataTable
+        private void Filter_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            if (_reportData == null) return;
+
+            // Escaping single quotes to prevent SQL syntax crashes
+            string partFilter = PartNoFilter.Text.Trim().Replace("'", "''");
+            string catFilter = CategoryFilter.Text.Trim().Replace("'", "''");
+
+            var filters = new List<string>();
+
+            // [Part Number] requires brackets because the column name contains a space
+            if (!string.IsNullOrEmpty(partFilter))
+                filters.Add($"[Part Number] LIKE '%{partFilter}%'");
+
+            if (!string.IsNullOrEmpty(catFilter))
+                filters.Add($"Category LIKE '%{catFilter}%'");
+
+            // Combine filters and apply to the DataView
+            _reportData.DefaultView.RowFilter = string.Join(" AND ", filters);
+        }
+
+        private void ExportButton_Click(object sender, RoutedEventArgs e)
+        {
+            var saveFileDialog = new SaveFileDialog { Filter = "Excel Files|*.xlsx", DefaultExt = "xlsx" };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                try
+                {
+                    // Export the dynamically filtered view, not the underlying raw data
+                    _excelService.ExportDataTable(saveFileDialog.FileName, _reportData.DefaultView.ToTable(), "Consolidated Comparison");
+                    MessageBox.Show("Report exported successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (System.Exception ex)
+                {
+                    MessageBox.Show($"Export Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+    }
+}
+
+================================================================================
+FILE: ViewModels\MainViewModel.cs
+PATH: C:\Users\220096\source\repos\BomComparer\ViewModels\MainViewModel.cs
+SIZE: 13283 bytes
+================================================================================
+
+// Location: ViewModels/MainViewModel.cs
+using BomComparer.Models;
+using BomComparer.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Win32;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Data;
+
+namespace BomComparer.ViewModels
+{
+    public partial class MainViewModel : ObservableObject
+    {
+        private readonly IExcelService _excelService;
+        private readonly IComparisonService _comparisonService;
+
+        [ObservableProperty]
+        private ObservableCollection<BomDifference> _differences = new();
+
+        public ICollectionView DifferencesView { get; }
+
+        // --- NEW QUEUE PROPERTIES ---
+        // Holds the visual list of file paths in the UI
+        [ObservableProperty]
+        private ObservableCollection<FileQueueItem> _fileQueue = new();
+
+        // Tracks which file the user currently has selected in the UI listbox to enable deletion
+        [ObservableProperty]
+        private FileQueueItem _selectedQueuedFile;
+
+        // Stores the actual BOM data in memory for the popup window, keyed by filename
+        public Dictionary<string, List<BomItem>> LoadedBoms { get; private set; } = new();
+
+        public List<string> AvailableIssueTypes { get; } = new()
+        {
+            "All", "Presence Mismatch", "Qty Mismatch", "Rev Change", "UoM Mismatch", "Cost Change", "Frequency Mismatch"
+        };
+
+        [ObservableProperty]
+        private string _searchAllColumns = string.Empty;
+        partial void OnSearchAllColumnsChanged(string value) => DifferencesView.Refresh();
+
+        [ObservableProperty]
+        private string _searchPartNo = string.Empty;
+        partial void OnSearchPartNoChanged(string value) => DifferencesView.Refresh();
+
+        [ObservableProperty]
+        private string _searchIssueType = "All";
+        partial void OnSearchIssueTypeChanged(string value) => DifferencesView.Refresh();
+
+        [ObservableProperty]
+        private bool _isBusy;
+
+        [ObservableProperty]
+        private string _statusMessage = "Ready";
+
+        public MainViewModel(IExcelService excelService, IComparisonService comparisonService)
+        {
+            _excelService = excelService;
+            _comparisonService = comparisonService;
+            DifferencesView = CollectionViewSource.GetDefaultView(Differences);
+            DifferencesView.Filter = FilterDifferences;
+        }
+
+        private bool FilterDifferences(object obj)
+        {
+            if (obj is not BomDifference diff) return false;
+
+            bool matchesPart = string.IsNullOrWhiteSpace(SearchPartNo) || diff.PartNo.Contains(SearchPartNo, StringComparison.OrdinalIgnoreCase);
+            bool matchesIssue = SearchIssueType == "All" || string.IsNullOrWhiteSpace(SearchIssueType) || diff.IssueType.Contains(SearchIssueType, StringComparison.OrdinalIgnoreCase);
+            bool matchesAll = string.IsNullOrWhiteSpace(SearchAllColumns) ||
+                              diff.PartNo.Contains(SearchAllColumns, StringComparison.OrdinalIgnoreCase) ||
+                              diff.Description.Contains(SearchAllColumns, StringComparison.OrdinalIgnoreCase) ||
+                              diff.IssueType.Contains(SearchAllColumns, StringComparison.OrdinalIgnoreCase) ||
+                              diff.Details.Contains(SearchAllColumns, StringComparison.OrdinalIgnoreCase);
+
+            return matchesPart && matchesIssue && matchesAll;
+        }
+
+        // --- NEW QUEUE MANAGEMENT COMMANDS ---
+        [RelayCommand]
+        private void AddFiles()
+        {
+            var openFileDialog = new OpenFileDialog { Multiselect = true, Filter = "Excel Files|*.xlsx" };
+            if (openFileDialog.ShowDialog() == true)
+            {
+                foreach (var file in openFileDialog.FileNames)
+                {
+                    // Check if file is already in queue
+                    if (!FileQueue.Any(f => f.FilePath == file))
+                    {
+                        FileQueue.Add(new FileQueueItem
+                        {
+                            FilePath = file,
+                            OriginalName = Path.GetFileNameWithoutExtension(file)
+                        });
+                    }
+                }
+                StatusMessage = $"Added files to queue.";
+            }
+        }
+
+        // NEW COMMAND
+        [RelayCommand]
+        private void SetNickname()
+        {
+            if (SelectedQueuedFile != null)
+            {
+                var dialog = new RenameWindow(SelectedQueuedFile.DisplayName);
+                // If you want this centered on the main window, you'd ideally pass the owner, 
+                // but this works perfectly as a standalone modal.
+                if (dialog.ShowDialog() == true)
+                {
+                    SelectedQueuedFile.Nickname = dialog.NewName;
+                    StatusMessage = $"Set nickname to '{dialog.NewName}'.";
+                }
+            }
+        }
+
+        [RelayCommand]
+        private void RemoveFile()
+        {
+            if (SelectedQueuedFile != null)
+            {
+                FileQueue.Remove(SelectedQueuedFile);
+                StatusMessage = "File removed from queue.";
+            }
+        }
+
+        [RelayCommand]
+        private void ClearQueue()
+        {
+            FileQueue.Clear();
+            Differences.Clear();
+            LoadedBoms.Clear();
+            StatusMessage = "Queue cleared.";
+        }
+
+        [RelayCommand]
+        private async Task RunComparisonAsync()
+        {
+            if (FileQueue.Count < 2)
+            {
+                System.Windows.MessageBox.Show("Please add at least 2 files to the queue to compare.", "Insufficient Files", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                return;
+            }
+
+            IsBusy = true;
+            StatusMessage = "Loading and comparing BOMs...";
+
+            try
+            {
+                List<string> missingWarnings = new List<string>();
+
+                var diffs = await Task.Run(() =>
+                {
+                    LoadedBoms.Clear();
+
+                    // Loop through the dynamic queue and load everything
+                    foreach (var fileItem in FileQueue)
+                    {
+                        var result = _excelService.ReadBom(fileItem.FilePath);
+
+                        // We now extract the DisplayName (which is the Nickname if provided, or OriginalName if not)
+                        string fileName = fileItem.DisplayName;
+
+                        // The contingency here prevents a crash if a user accidentally nicknames two files the exact same thing
+                        if (!LoadedBoms.ContainsKey(fileName))
+                            LoadedBoms.Add(fileName, result.BomItems);
+                        else
+                            LoadedBoms.Add($"{fileName} ({Guid.NewGuid().ToString().Substring(0, 4)})", result.BomItems);
+
+                        var missing = result.MissingColumns.Except(missingWarnings).ToList();
+                        if (missing.Any()) missingWarnings.AddRange(missing);
+                    }
+
+                    // Pass the dictionary to our new N-way comparator
+                    return _comparisonService.CompareBoms(LoadedBoms);
+                });
+
+                Differences.Clear();
+                foreach (var d in diffs) Differences.Add(d);
+
+                if (missingWarnings.Any())
+                {
+                    System.Windows.MessageBox.Show($"Warning: The following expected columns were not found and will be skipped:\n\n{string.Join(", ", missingWarnings)}",
+                        "Missing Columns Detected", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                }
+
+                StatusMessage = $"Comparison complete. Found {diffs.Count} differences across {FileQueue.Count} files.";
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show(ex.Message, "Error Loading File", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                StatusMessage = "Error encountered during comparison.";
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task ExportReportAsync()
+        {
+            if (Differences.Count == 0) return;
+            var saveFileDialog = new SaveFileDialog { Filter = "Excel Files|*.xlsx", DefaultExt = "xlsx" };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                IsBusy = true;
+                StatusMessage = "Exporting report...";
+
+                var filteredList = new List<BomDifference>();
+                foreach (BomDifference item in DifferencesView) filteredList.Add(item);
+
+                try
+                {
+                    await Task.Run(() => _excelService.ExportComparison(saveFileDialog.FileName, filteredList));
+                    StatusMessage = "Report exported successfully.";
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"Export Error: {ex.Message}";
+                }
+                finally
+                {
+                    IsBusy = false;
+                }
+            }
+        }
+
+
+        [RelayCommand]
+        private async Task RunTopLevelComparisonAsync()
+        {
+            if (FileQueue.Count < 2)
+            {
+                System.Windows.MessageBox.Show("Please add at least 2 files to the queue to compare.", "Insufficient Files", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                return;
+            }
+
+            IsBusy = true;
+            StatusMessage = "Generating Top Level Comparison...";
+
+            try
+            {
+                // ADDED: Instantiate the missing list here so the foreach loop can access it
+                List<string> missingWarnings = new List<string>();
+
+                var dataTable = await Task.Run(() =>
+                {
+                    // Ensure files are loaded into memory first
+                    LoadedBoms.Clear();
+                    // Loop through the dynamic queue and load everything
+                    foreach (var fileItem in FileQueue)
+                    {
+                        var result = _excelService.ReadBom(fileItem.FilePath);
+
+                        // We now extract the DisplayName (which is the Nickname if provided, or OriginalName if not)
+                        string fileName = fileItem.DisplayName;
+
+                        // The contingency here prevents a crash if a user accidentally nicknames two files the exact same thing
+                        if (!LoadedBoms.ContainsKey(fileName))
+                            LoadedBoms.Add(fileName, result.BomItems);
+                        else
+                            LoadedBoms.Add($"{fileName} ({Guid.NewGuid().ToString().Substring(0, 4)})", result.BomItems);
+
+                        var missing = result.MissingColumns.Except(missingWarnings).ToList();
+                        if (missing.Any()) missingWarnings.AddRange(missing);
+                    }
+
+                    return _comparisonService.GenerateTopLevelReport(LoadedBoms);
+                });
+
+                // Open the new window and pass the DataTable and the ExcelService
+                var reportWindow = new TopLevelReportWindow(dataTable, _excelService);
+                reportWindow.Show();
+
+                // ADDED: Show the warning popup if columns were missing, just like the other comparison method
+                if (missingWarnings.Any())
+                {
+                    System.Windows.MessageBox.Show($"Warning: The following expected columns were not found and will be skipped:\n\n{string.Join(", ", missingWarnings)}",
+                        "Missing Columns Detected", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                }
+
+                StatusMessage = "Top Level Report Generated.";
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show(ex.Message, "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                StatusMessage = "Error generating report.";
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+
+        [RelayCommand]
+        private void OpenReconciliationWindow()
+        {
+            var window = new ReconciliationWindow(_excelService, _comparisonService);
+            // Setting the Owner locks it to the center of your main app screen
+            window.Owner = App.Current.MainWindow;
+            window.ShowDialog();
+        }
+
+
+
+
+
+
+
+
+    }
+}

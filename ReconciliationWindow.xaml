@@ -1,0 +1,33 @@
+﻿<Window x:Class="BomComparer.ReconciliationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Subsystem Cable Reconciliation" Height="250" Width="600" WindowStartupLocation="CenterOwner" ResizeMode="CanResize">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,15">
+            <TextBlock Text="1. Select Schematic Excel File:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <DockPanel>
+                <Button Content="Browse..." Width="80" DockPanel.Dock="Right" Click="BrowseSchematic_Click" Margin="5,0,0,0"/>
+                <TextBox x:Name="SchematicPathBox" IsReadOnly="True" Background="#F5F5F5" VerticalContentAlignment="Center" Height="25"/>
+            </DockPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,15">
+            <TextBlock Text="2. Select Exploded BOM Excel File:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <DockPanel>
+                <Button Content="Browse..." Width="80" DockPanel.Dock="Right" Click="BrowseExploded_Click" Margin="5,0,0,0"/>
+                <TextBox x:Name="ExplodedPathBox" IsReadOnly="True" Background="#F5F5F5" VerticalContentAlignment="Center" Height="25"/>
+            </DockPanel>
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText" Grid.Row="2" Text="" Foreground="Blue" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+
+        <Button x:Name="GenerateButton" Grid.Row="3" Content="Generate Reconciliation Report" Height="35" FontWeight="Bold" Background="#D4E6F1" Click="Generate_Click"/>
+    </Grid>
+</Window>
